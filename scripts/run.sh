@@ -1,4 +1,5 @@
 #!/bin/bash
 set -e
 
-go run main.go
+nohup go run main.go &
+sleep 10
