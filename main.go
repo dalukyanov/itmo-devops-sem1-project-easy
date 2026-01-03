@@ -322,7 +322,10 @@ func getPricesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=data.zip")
-	w.Write(zipBuf.Bytes())
+
+	if _, err := w.Write(zipBuf.Bytes()); err != nil {
+    	log.Printf("Failed to write response to client: %v", err)
+    }
 }
 
 func main() {
