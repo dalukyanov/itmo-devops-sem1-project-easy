@@ -243,10 +243,14 @@ func getPricesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var buf bytes.Buffer
-	csvWriter := csv.NewWriter(&buf)
-
-	csvWriter.Write([]string{"id", "name", "category", "price", "create_date"})
+	// Считываем все данные из курсора
+	var records []struct {
+		ID        string
+		Name      string
+		Category  string
+		Price     string
+		CreateDate string
+	}
 
 	for rows.Next() {
 		var id int
@@ -259,11 +263,35 @@ func getPricesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		dateStr := createDate.Format("2006-01-02")
-		priceStr := fmt.Sprintf("%.2f", price)
-		idStr := strconv.Itoa(id)
+		records = append(records, struct {
+			ID        string
+			Name      string
+			Category  string
+			Price     string
+			CreateDate string
+		}{
+			ID:         strconv.Itoa(id),
+			Name:       name,
+			Category:   category,
+			Price:      fmt.Sprintf("%.2f", price),
+			CreateDate: createDate.Format("2006-01-02"),
+		})
+	}
 
-		if err := csvWriter.Write([]string{idStr, name, category, priceStr, dateStr}); err != nil {
+	// Проверка rows.Err() после цикла в соотстветствии с комментариями ревьювера
+	if err = rows.Err(); err != nil {
+		http.Error(w, "Database cursor error", http.StatusInternalServerError)
+		return
+	}
+
+	// Теперь записываем в CSV
+	var buf bytes.Buffer
+	csvWriter := csv.NewWriter(&buf)
+
+	csvWriter.Write([]string{"id", "name", "category", "price", "create_date"})
+
+	for _, rec := range records {
+		if err := csvWriter.Write([]string{rec.ID, rec.Name, rec.Category, rec.Price, rec.CreateDate}); err != nil {
 			http.Error(w, "Failed to write CSV", http.StatusInternalServerError)
 			return
 		}
@@ -275,6 +303,7 @@ func getPricesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Создаём ZIP и отправляем
 	var zipBuf bytes.Buffer
 	zipWriter := zip.NewWriter(&zipBuf)
 	f, err := zipWriter.Create("data.csv")
