@@ -2,4 +2,4 @@
 set -e
 
 nohup go run main.go &
-sleep 10
+sleep 3
