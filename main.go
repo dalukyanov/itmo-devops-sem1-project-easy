@@ -41,7 +41,16 @@ func initDB() {
 	if err != nil {
 		log.Fatalf("Failed to open DB: %v", err)
 	}
+
+	// Убедимся, что соединение закроется в случае ошибки
+	defer func() {
+		if err != nil && db != nil {
+			_ = db.Close()
+		}
+	}()
+
 	if err = db.Ping(); err != nil {
+		err = fmt.Errorf("failed to connect to DB: %w", err)
 		log.Fatalf("Failed to connect to DB: %v", err)
 	}
 
@@ -57,6 +66,7 @@ func initDB() {
 	`
 	_, err = db.Exec(createTable)
 	if err != nil {
+		err = fmt.Errorf("failed to create table: %w", err)
 		log.Fatalf("Failed to create table: %v", err)
 	}
 }
