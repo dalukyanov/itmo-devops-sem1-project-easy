@@ -82,7 +82,8 @@ func postPricesHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	// Удалено в соответственни с комментарием ревьювера
+	// defer r.Body.Close()
 
 	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
@@ -174,40 +175,54 @@ func postPricesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := db.Begin()
+tx, err := db.Begin()
+if err != nil {
+	http.Error(w, "DB transaction failed", http.StatusInternalServerError)
+	return
+}
+defer tx.Rollback() // откатится, если не вызван Commit
+
+stmt, err := tx.Prepare(`INSERT INTO prices(name, category, price, create_date) VALUES ($1, $2, $3, $4)`)
+if err != nil {
+	http.Error(w, "Failed to prepare insert statement", http.StatusInternalServerError)
+	return
+}
+defer stmt.Close()
+
+// Вставка
+for _, rec := range records {
+	_, err := stmt.Exec(rec.Name, rec.Category, rec.Price, rec.CreateDate)
 	if err != nil {
-		http.Error(w, "DB transaction failed", http.StatusInternalServerError)
+		http.Error(w, "Failed to insert record", http.StatusInternalServerError)
 		return
 	}
-	defer tx.Rollback()
+}
 
-	stmt, err := tx.Prepare(`INSERT INTO prices(name, category, price, create_date) VALUES ($1, $2, $3, $4)`)
-	if err != nil {
-		http.Error(w, "Failed to prepare insert statement", http.StatusInternalServerError)
-		return
-	}
-	defer stmt.Close()
+// Статистика по БД в соответствии с комментарием ревьювера
+var totalItems, totalCategories int
+var totalPrice float64
+err = tx.QueryRow(`
+	SELECT 
+		COUNT(*) AS total_items,
+		COUNT(DISTINCT category) AS total_categories,
+		COALESCE(SUM(price), 0) AS total_price
+	FROM prices;
+`).Scan(&totalItems, &totalCategories, &totalPrice)
+if err != nil {
+	http.Error(w, "Failed to compute statistics", http.StatusInternalServerError)
+	return
+}
 
-	var totalPrice float64
-	for _, rec := range records {
-		_, err := stmt.Exec(rec.Name, rec.Category, rec.Price, rec.CreateDate)
-		if err != nil {
-			http.Error(w, "Failed to insert record", http.StatusInternalServerError)
-			return
-		}
-		totalPrice += rec.Price
-	}
+if err = tx.Commit(); err != nil {
+	http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
+	return
+}
 
-	if err = tx.Commit(); err != nil {
-		http.Error(w, "Failed to commit transaction", http.StatusInternalServerError)
-		return
-	}
-
-	resp := StatsResponse{
-		TotalItems:      len(records),
-		TotalCategories: len(categories),
-		TotalPrice:      totalPrice,
-	}
+resp := StatsResponse{
+	TotalItems:      totalItems,
+	TotalCategories: totalCategories,
+	TotalPrice:      totalPrice,
+}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
